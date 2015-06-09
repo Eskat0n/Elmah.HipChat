@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <id>Elmah.HipChat</id>
+    <version>$version$</version>
+    <title>Elmah.HipChat</title>
+    <authors>Eskat0n</authors>
+    <owners>Eskat0n</owners>
+    <licenseUrl>http://www.opensource.org/licenses/mit-license.php</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>HipChat error messaging module for usage with ELMAH. Powerful yet simple.</description>
+    <tags>elmah hipchat error logging unhandled exception</tags>
+  </metadata>
+</package>
