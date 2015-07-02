@@ -84,13 +84,13 @@
             jsonWriter.String("red");
 
             jsonWriter.Member("message");
-            jsonWriter.String($"{exception.GetType()} at {httpContext.Request.Url}: {exception.Message}");
+            jsonWriter.String($"{exception.GetType()} at <a href='{httpContext.Request.Url}' target='_blank'>{httpContext.Request.Url}</a>: {exception.Message}");
 
             jsonWriter.Member("notify");
             jsonWriter.Boolean(notify);
 
             jsonWriter.Member("message_format");
-            jsonWriter.String("text");
+            jsonWriter.String("html");
 
             jsonWriter.EndObject();
 
