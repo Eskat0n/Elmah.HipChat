@@ -6,6 +6,7 @@
     using System.IO;
     using System.Net;
     using System.Text;
+    using System.Threading;
     using System.Web;
 
     public class ErrorHipChatModule : HttpModuleBase, IExceptionFiltering
@@ -20,6 +21,7 @@
         protected string AuthToken { get; private set; }
         protected string RoomId { get; private set; }
         protected bool Notify { get; private set; }
+        protected bool Async { get; private set; }
 
         protected override void OnInit(HttpApplication application)
         {
@@ -36,20 +38,21 @@
             AuthToken = GetSetting(config, "authToken");
             RoomId = GetSetting(config, "roomId");
             Notify = Convert.ToBoolean(GetSetting(config, "notify", "false"));
+            Async = Convert.ToBoolean(GetSetting(config, "async", "false"));
         }
 
         protected virtual void OnError(object sender, EventArgs args)
         {
             var httpApplication = (HttpApplication) sender;
-            LogException(httpApplication.Server.GetLastError(), httpApplication.Context);
+            OnError(httpApplication.Server.GetLastError(), httpApplication.Context);
         }
 
         protected virtual void OnErrorSignaled(object sender, ErrorSignalEventArgs args)
         {
-            LogException(args.Exception, args.Context);
+            OnError(args.Exception, args.Context);
         }
 
-        protected virtual void LogException(Exception exception, HttpContext httpContext)
+        protected virtual void OnError(Exception exception, HttpContext httpContext)
         {
             if (exception == null)
                 throw new ArgumentNullException(nameof(exception));
@@ -59,42 +62,15 @@
             if (args.Dismissed)
                 return;
 
-            var webClient = new WebClient();
-            var apiEndpoint = CreateApiEndpoint(AuthToken, RoomId);
-            var chatMessage = CreateChatMessage(exception, httpContext, Notify);
+            var error = new Error(exception, httpContext)
+            {
+                Detail = httpContext.Request.Url.ToString()
+            };
 
-            webClient.Headers.Add("Content-Type", "application/json");
-            webClient.UploadString(apiEndpoint, chatMessage);
-        }
-
-        protected virtual string CreateApiEndpoint(string authToken, string roomId)
-        {
-            return $"https://api.hipchat.com/v2/room/{roomId}/notification?auth_token={authToken}";
-        }
-
-        protected virtual string CreateChatMessage(Exception exception, HttpContext httpContext, bool notify)
-        {
-            var stringBuilder = new StringBuilder();
-            var textWriter = new StringWriter(stringBuilder);
-            var jsonWriter = new JsonTextWriter(textWriter);
-
-            jsonWriter.Object();
-
-            jsonWriter.Member("color");
-            jsonWriter.String("red");
-
-            jsonWriter.Member("message");
-            jsonWriter.String($"{exception.GetType()} at <a href='{httpContext.Request.Url}' target='_blank'>{httpContext.Request.Url}</a>: {exception.Message}");
-
-            jsonWriter.Member("notify");
-            jsonWriter.Boolean(notify);
-
-            jsonWriter.Member("message_format");
-            jsonWriter.String("html");
-
-            jsonWriter.EndObject();
-
-            return stringBuilder.ToString(); 
+            if (Async)
+                SendMessageAsync(error);
+            else
+                SendMessage(error);
         }
 
         protected virtual void OnFiltering(ExceptionFilterEventArgs args)
@@ -106,6 +82,59 @@
         protected virtual object GetConfig()
         {
             return ConfigurationManager.GetSection($"{SectionGroupName}/{SubSectionName}");
+        }
+
+        protected virtual void SendMessageAsync(Error error)
+        {
+            if (error == null)
+                throw new ArgumentNullException(nameof(error));
+
+            ThreadPool.QueueUserWorkItem(SendMessage, error);
+        }
+
+        protected virtual void SendMessage(object state)
+        {
+            SendMessage((Error) state);
+        }
+
+        protected virtual void SendMessage(Error error)
+        {
+            var webClient = new WebClient();
+            var apiEndpoint = CreateApiEndpoint(AuthToken, RoomId);
+            var chatMessage = CreateChatMessage(error, Notify);
+
+            webClient.Headers.Add("Content-Type", "application/json");
+            webClient.UploadString(apiEndpoint, chatMessage);
+        }
+
+        protected virtual string CreateApiEndpoint(string authToken, string roomId)
+        {
+            return $"https://api.hipchat.com/v2/room/{roomId}/notification?auth_token={authToken}";
+        }
+
+        protected virtual string CreateChatMessage(Error error, bool notify)
+        {
+            var stringBuilder = new StringBuilder();
+            var textWriter = new StringWriter(stringBuilder);
+            var jsonWriter = new JsonTextWriter(textWriter);
+
+            jsonWriter.Object();
+
+            jsonWriter.Member("color");
+            jsonWriter.String("red");
+
+            jsonWriter.Member("message");            
+            jsonWriter.String($"{error.Exception.GetType()} at <a href='{error.Detail}' target='_blank'>{error.Detail}</a>: {error.Exception.Message}");
+
+            jsonWriter.Member("notify");
+            jsonWriter.Boolean(notify);
+
+            jsonWriter.Member("message_format");
+            jsonWriter.String("html");
+
+            jsonWriter.EndObject();
+
+            return stringBuilder.ToString(); 
         }
 
         private static string GetSetting(IDictionary config, string name, string defaultValue = null)
